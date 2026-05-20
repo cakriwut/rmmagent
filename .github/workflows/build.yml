@@ -1,0 +1,62 @@
+name: Build & Release Agent
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build all platforms
+        run: |
+          mkdir -p dist
+          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+
+          platforms=(
+            "linux/amd64"
+            "linux/386"
+            "linux/arm64"
+            "linux/arm"
+            "windows/amd64"
+            "windows/386"
+            "darwin/amd64"
+            "darwin/arm64"
+          )
+
+          for platform in "${platforms[@]}"; do
+            OS="${platform%/*}"
+            ARCH="${platform#*/}"
+            OUT="dist/tacticalagent-${OS}-${ARCH}"
+            [ "$OS" = "windows" ] && OUT="${OUT}.exe"
+            echo "Building $OUT..."
+            CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH go build -ldflags "$LDFLAGS" -o "$OUT" .
+          done
+          ls -lh dist/
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agents
+          path: dist/
+          retention-days: 30
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
