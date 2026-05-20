@@ -5,6 +5,10 @@ on:
     branches: [develop]
     tags: ["v*"]
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version override (e.g. 2.10.0). Leave empty to use main.go default."
+        required: false
 
 jobs:
   build:
@@ -23,8 +27,25 @@ jobs:
       - name: Build all platforms
         run: |
           mkdir -p dist
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
-          LDFLAGS="-s -w -X main.version=${VERSION}"
+
+          # Determine version: tag > workflow_dispatch input > main.go default (no override)
+          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            # Use hardcoded version in main.go -- don't override with commit hash
+            VERSION=""
+          fi
+
+          if [ -n "$VERSION" ]; then
+            LDFLAGS="-s -w -X main.version=${VERSION}"
+          else
+            LDFLAGS="-s -w"
+          fi
+
+          echo "Building with VERSION=${VERSION:-'(from main.go)'} LDFLAGS=$LDFLAGS"
 
           platforms=(
             "linux/amd64"
